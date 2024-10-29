@@ -6,6 +6,8 @@
 
 #include <glm/glm.hpp>
 
+#include <optional>
+
 namespace vke {
     struct VertexBufferAttribute {
         uint32_t   location;

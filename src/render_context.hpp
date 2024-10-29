@@ -41,6 +41,19 @@ namespace vke {
         bool          swapchain_reloaded;
     };
 
+    enum class MemoryUsage {
+        GpuOnly,
+        CpuOnly,
+        GpuToCpu,
+        CpuToGpu
+    };
+
+    struct BufferOptions {
+        vk::BufferCreateFlags flags;
+        // leave empty for exclusive sharing mode
+        std::vector<uint32_t> queue_families;
+    };
+
     class RenderContext {
       public:
         static constexpr uint32_t MAX_FRAMES_IN_FLIGHT = 2;
@@ -104,7 +117,9 @@ namespace vke {
         [[nodiscard]] vk::ShaderModule compile_glsl_shader(const std::string& source, const std::string& filename) const;
         [[nodiscard]] vk::ShaderModule load_spirv_shader(const std::vector<uint32_t>& code) const;
 
-        std::tuple<vk::Buffer, VmaAllocation, VmaAllocationInfo> create_buffer(size_t size, const void* data);
+        std::tuple<vk::Buffer, VmaAllocation, VmaAllocationInfo> create_buffer(size_t size, const void* data, MemoryUsage memory_ussage, vk::BufferUsageFlags usage, const BufferOptions &options = {});
+
+        void run_transfer_commands_and_wait(const std::function<void(const vk::CommandBuffer& cmd)>& f);
 
       private:
         vk::Instance               m_instance;

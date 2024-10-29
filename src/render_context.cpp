@@ -1,3 +1,4 @@
+#include <vulkan/vulkan_enums.hpp>
 #define VMA_IMPLEMENTATION
 #include <vk_mem_alloc.h>
 
@@ -540,6 +541,62 @@ namespace vke {
 
     vk::ShaderModule RenderContext::load_spirv_shader(const std::vector<uint32_t> &code) const {
         return m_device.createShaderModule(vk::ShaderModuleCreateInfo({}, code));
+    }
+
+    std::tuple<vk::Buffer, VmaAllocation, VmaAllocationInfo> create_buffer(const size_t size, const void* data, const MemoryUsage memory_usage, const vk::BufferUsageFlags usage, const BufferOptions &options) {
+        assert(size > 0);
+
+        vk::BufferCreateInfo buffer_ci{};
+        buffer_ci.setSize(size);
+        buffer_ci.flags = options.flags;
+        buffer_ci.usage = usage;
+
+        if (options.queue_families.size() <= 1) {
+            buffer_ci.setSharingMode(vk::SharingMode::eExclusive);
+        } else {
+            buffer_ci.setSharingMode(vk::SharingMode::eConcurrent);
+            buffer_ci.setQueueFamilyIndices(options.queue_families);
+        }
+
+        VmaAllocationCreateInfo aci{};
+         
+        switch (memory_usage) {
+            case MemoryUsage::GpuOnly:
+                aci.usage = VMA_MEMORY_USAGE_AUTO_PREFER_DEVICE;
+                buffer_ci.usage |= vk::BufferUsageFlagBits::eTransferDst;
+                break;
+            case MemoryUsage::CpuOnly:
+                aci.usage = VMA_MEMORY_USAGE_AUTO_PREFER_HOST;
+                aci.flags = VMA_ALLOCATION_CREATE_HOST_ACCESS_RANDOM_BIT | VMA_ALLOCATION_CREATE_HOST_ACCESS_SEQUENTIAL_WRITE_BIT;
+                break;
+            case MemoryUsage::GpuToCpu:
+                aci.usage = VMA_MEMORY_USAGE_AUTO;
+                aci.flags = VMA_ALLOCATION_CREATE_HOST_ACCESS_RANDOM_BIT | VMA_ALLOCATION_CREATE_HOST_ACCESS_SEQUENTIAL_WRITE_BIT;
+                break;
+            case MemoryUsage::CpuToGpu:
+                aci.usage = VMA_MEMORY_USAGE_AUTO;
+                aci.flags = VMA_ALLOCATION_CREATE_HOST_ACCESS_RANDOM_BIT | VMA_ALLOCATION_CREATE_HOST_ACCESS_SEQUENTIAL_WRITE_BIT;
+                break;
+        }
+
+        VkBuffer buffer;
+        VkBufferCreateInfo bci = buffer_ci;
+        VmaAllocation allocation;
+        VmaAllocationInfo allocation_info;
+
+        vmaCreateBuffer(m_allocator, &bci, &aci, &buffer, &allocation, &allocation_info);
+
+        if (data != nullptr) {
+            if (memory_usage == MemoryUsage::GpuOnly) {
+                // needs to stage the data, bit weirder
+                auto staging = create_buffer(size, data, MemoryUsage::CpuToGpu, vk::BufferUsageFlagBits::eTransferSrc);
+                void* pStaging;
+                vmaMapMemory();
+            } else {
+                // map the memory and do the copy
+
+            }
+        }
     }
 
 } // namespace vke
