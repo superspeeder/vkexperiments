@@ -42,14 +42,17 @@ target_include_directories(stb INTERFACE ${stb_SOURCE_DIR})
 add_library(stb::stb ALIAS stb)
 
 add_executable(vkexperiments src/main.cpp
-        src/app.cpp
-        src/app.hpp
-        src/render_context.cpp
-        src/render_context.hpp
-        src/state_track.cpp
-        src/state_track.hpp
-        src/renderer.cpp
-        src/renderer.hpp)
+        src/vke/app.cpp
+        src/vke/app.hpp
+        src/vke/render_context.cpp
+        src/vke/render_context.hpp
+        src/vke/state_track.cpp
+        src/vke/state_track.hpp
+        src/vke/renderer.cpp
+        src/vke/renderer.hpp
+        src/vke/mesh.cpp
+        src/vke/mesh.hpp
+        src/vke/util.hpp)
 target_include_directories(vkexperiments PRIVATE src)
 target_link_libraries(vkexperiments PRIVATE glfw glm::glm spdlog::spdlog stb::stb GPUOpen::VulkanMemoryAllocator Vulkan::Vulkan Vulkan::shaderc_combined)
 target_compile_definitions(vkexperiments PRIVATE GLM_FORCE_RADIANS GLM_ENABLE_EXPERIMENTAL GLFW_INCLUDE_NONE GLFW_INCLUDE_VULKAN VULKAN_HPP_DISPATCH_LOADER_DYNAMIC=1 VMA_STATIC_VULKAN_FUNCTIONS=0 VMA_DYNAMIC_VULKAN_FUNCTIONS=1)

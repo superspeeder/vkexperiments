@@ -8,6 +8,8 @@
 
 #include <optional>
 
+#include "vke/mesh.hpp"
+
 namespace vke {
     struct VertexBufferAttribute {
         uint32_t   location;
@@ -123,6 +125,10 @@ namespace vke {
         void bind_graphics_pipeline(const std::unique_ptr<GraphicsPipeline> &pipeline) const;
         void bind_graphics_pipeline(const GraphicsPipeline &pipeline) const;
         void bind_compute_pipeline(vk::Pipeline pipeline) const;
+
+        void bind_mesh(const std::unique_ptr<Mesh> &mesh) const;
+        void bind_mesh(const std::shared_ptr<Mesh> &mesh) const;
+        void bind_mesh(const Mesh *mesh) const;
 
       private:
         vk::CommandBuffer cmd;

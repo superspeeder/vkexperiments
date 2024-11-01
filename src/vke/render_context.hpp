@@ -1,11 +1,14 @@
 #pragma once
 
+#include <vulkan/vulkan.hpp>
+
 #include <GLFW/glfw3.h>
 #include <filesystem>
 #include <glm/glm.hpp>
 #include <shaderc/shaderc.hpp>
 #include <vk_mem_alloc.h>
-#include <vulkan/vulkan.hpp>
+
+#include <ranges>
 
 #include <functional>
 
@@ -42,16 +45,24 @@ namespace vke {
     };
 
     enum class MemoryUsage {
-        GpuOnly,
-        CpuOnly,
-        GpuToCpu,
-        CpuToGpu
+        DeviceOnly,
+        Auto,
     };
+
+    enum class MemoryAccessMode { Sequential, Random, None, Auto };
 
     struct BufferOptions {
         vk::BufferCreateFlags flags;
         // leave empty for exclusive sharing mode
         std::vector<uint32_t> queue_families;
+
+        MemoryAccessMode access_mode = MemoryAccessMode::Auto;
+    };
+
+    struct BufferInfo {
+        vk::Buffer buffer;
+        VmaAllocation allocation;
+        VmaAllocationInfo allocation_info;
     };
 
     class RenderContext {
@@ -110,16 +121,33 @@ namespace vke {
          */
         void submit_for_rendering(vk::CommandBuffer cmd, const FrameInfo &frame_info) const;
 
-        [[nodiscard]] vk::Rect2D swapchain_area() const;
+        [[nodiscard]] vk::Rect2D   swapchain_area() const;
         [[nodiscard]] vk::Viewport swapchain_viewport(float min_depth = 0.0f, float max_depth = 1.0f) const;
 
-        [[nodiscard]] vk::ShaderModule load_shader_module(const std::filesystem::path& path, SourceType source_type) const;
-        [[nodiscard]] vk::ShaderModule compile_glsl_shader(const std::string& source, const std::string& filename) const;
-        [[nodiscard]] vk::ShaderModule load_spirv_shader(const std::vector<uint32_t>& code) const;
+        [[nodiscard]] vk::ShaderModule load_shader_module(const std::filesystem::path &path, SourceType source_type) const;
+        [[nodiscard]] vk::ShaderModule compile_glsl_shader(const std::string &source, const std::string &filename) const;
+        [[nodiscard]] vk::ShaderModule load_spirv_shader(const std::vector<uint32_t> &code) const;
 
-        std::tuple<vk::Buffer, VmaAllocation, VmaAllocationInfo> create_buffer(size_t size, const void* data, MemoryUsage memory_ussage, vk::BufferUsageFlags usage, const BufferOptions &options = {});
+        BufferInfo create_buffer(size_t size, const void *data, MemoryUsage memory_usage, vk::BufferUsageFlags usage,
+                                                                               const BufferOptions &options = {});
 
-        void run_transfer_commands_and_wait(const std::function<void(const vk::CommandBuffer& cmd)>& f);
+        template <std::ranges::contiguous_range Range>
+        inline BufferInfo create_buffer(Range &&range, const MemoryUsage memory_usage, const vk::BufferUsageFlags usage,
+                                                                                      const BufferOptions &options = {}) {
+            return create_buffer(std::ranges::size(range) * sizeof(std::ranges::range_value_t<Range>), std::ranges::data(range), memory_usage, usage, options);
+        };
+
+        void run_transfer_commands_and_wait(const std::function<void(const vk::CommandBuffer &cmd)> &f) const;
+        void run_graphics_commands_and_wait(const std::function<void(const vk::CommandBuffer &cmd)> &f) const;
+        void run_compute_commands_and_wait(const std::function<void(const vk::CommandBuffer &cmd)> &f) const;
+
+        void copy_buffer_to_buffer(vk::Buffer from, vk::Buffer to, vk::DeviceSize size, vk::DeviceSize dst_offset = 0) const;
+        void copy_buffer_to_buffer(vk::Buffer from, vk::Buffer to, vk::DeviceSize size, vk::DeviceSize src_offset, vk::DeviceSize dst_offset) const;
+
+        void destroy_buffer(const BufferInfo &info) const;
+
+        void write_to_memory(VmaAllocation allocation, size_t size, const void *data, ptrdiff_t dst_offset = 0) const;
+        void write_to_memory(VmaAllocation allocation, size_t size, const void *data, ptrdiff_t src_offset, ptrdiff_t dst_offset) const;
 
       private:
         vk::Instance               m_instance;

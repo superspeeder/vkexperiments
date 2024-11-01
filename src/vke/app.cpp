@@ -33,6 +33,15 @@ namespace vke {
         m_pipeline_layout = m_render_context->device().createPipelineLayout({});
 
         GraphicsPipelineBuilder builder{};
+        builder.vertex_buffer_bindings = {VertexBufferBinding{
+            0,
+            sizeof(glm::vec4),
+            vk::VertexInputRate::eVertex,
+            {
+                VertexBufferAttribute{0, vk::Format::eR32G32Sfloat, 0},
+                VertexBufferAttribute{1, vk::Format::eR32G32Sfloat, sizeof(float) * 2},
+            },
+        }};
 
         builder.stages = {
             ShaderStage{vk::ShaderStageFlagBits::eVertex, "main", m_vertex_module},
@@ -55,10 +64,23 @@ namespace vke {
         builder.layout                 = m_pipeline_layout;
 
         m_pipeline = std::make_unique<GraphicsPipeline>(m_render_context->device(), builder);
+
+        std::vector<glm::vec4> vertices = {
+            {-0.5f, 0.5f, -1.0f, -1.0f}, // bl
+            {-0.5f, -0.5f, -1.0f, 1.0f}, // tl
+            {0.5f, -0.5f, 1.0f, 1.0f},   // tr
+            {0.5f, 0.5f, 1.0f, -1.0f},   // br
+        };
+
+        std::vector<uint16_t> indices = {0, 1, 2, 0, 2, 3};
+
+        m_mesh = Mesh::create(m_render_context, vertices, indices, MeshType::Static, {.index_type = vk::IndexType::eUint16});
     }
 
     App::~App() {
         m_render_context->device().waitIdle();
+
+        m_mesh.reset();
 
         m_pipeline.reset();
         m_render_context->device().destroy(m_vertex_module);
@@ -101,7 +123,8 @@ namespace vke {
                         r.bind_graphics_pipeline(m_pipeline);
                         r->setViewport(0, m_render_context->swapchain_viewport());
                         r->setScissor(0, m_render_context->swapchain_area());
-                        r->draw(3, 1, 0, 0);
+                        r.bind_mesh(m_mesh);
+                        r->drawIndexed(6, 1, 0, 0, 0);
                     });
 
                     m_tracked_images[frame_info.image_index].transition(cmd, vk::PipelineStageFlagBits2::eColorAttachmentOutput, vk::PipelineStageFlagBits2::eBottomOfPipe,

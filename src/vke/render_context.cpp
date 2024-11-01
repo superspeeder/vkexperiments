@@ -1,18 +1,19 @@
-#include <vulkan/vulkan_enums.hpp>
 #define VMA_IMPLEMENTATION
 #include <vk_mem_alloc.h>
 
 #include "render_context.hpp"
+#include <shaderc/shaderc.hpp>
 #include <spdlog/sinks/stdout_color_sinks.h>
 #include <spdlog/spdlog.h>
-#include <shaderc/shaderc.hpp>
 
+#include <fstream>
 #include <optional>
 #include <unordered_set>
-#include <fstream>
 
+template <typename T, typename O>
+using ptrshift_t = std::conditional_t<std::is_const_v<std::remove_pointer_t<T>>, std::add_pointer_t<std::add_const_t<O>>, std::add_pointer_t<O>>;
 
-
+#define OFFSETPTR(p, o) static_cast<decltype(p)>(reinterpret_cast<ptrshift_t<decltype(p), unsigned char>>(p) + o)
 
 VULKAN_HPP_DEFAULT_DISPATCH_LOADER_DYNAMIC_STORAGE;
 
@@ -172,9 +173,10 @@ namespace vke {
             vk::PhysicalDeviceVulkan11Features v11f{};
             vk::PhysicalDeviceVulkan12Features v12f{};
             vk::PhysicalDeviceVulkan13Features v13f{};
-            v13f.dynamicRendering = true;
-            v13f.maintenance4     = true;
-            v13f.synchronization2 = true;
+            v13f.dynamicRendering    = true;
+            v13f.maintenance4        = true;
+            v13f.synchronization2    = true;
+            v12f.bufferDeviceAddress = true;
 
             f2.pNext   = &v11f;
             v11f.pNext = &v12f;
@@ -228,8 +230,8 @@ namespace vke {
         configure_swapchain(window);
 
         m_graphics_pool = m_device.createCommandPool(vk::CommandPoolCreateInfo(vk::CommandPoolCreateFlagBits::eResetCommandBuffer, m_queue_families.graphics));
-        m_compute_pool  = m_device.createCommandPool(vk::CommandPoolCreateInfo(vk::CommandPoolCreateFlagBits::eResetCommandBuffer, m_queue_families.transfer));
-        m_transfer_pool = m_device.createCommandPool(vk::CommandPoolCreateInfo(vk::CommandPoolCreateFlagBits::eResetCommandBuffer, m_queue_families.compute));
+        m_transfer_pool = m_device.createCommandPool(vk::CommandPoolCreateInfo(vk::CommandPoolCreateFlagBits::eResetCommandBuffer, m_queue_families.transfer));
+        m_compute_pool  = m_device.createCommandPool(vk::CommandPoolCreateInfo(vk::CommandPoolCreateFlagBits::eResetCommandBuffer, m_queue_families.compute));
     }
 
     RenderContext::~RenderContext() {
@@ -440,7 +442,8 @@ namespace vke {
     }
 
     vk::Viewport RenderContext::swapchain_viewport(const float min_depth, const float max_depth) const {
-        return vk::Viewport(0.0f, 0.0f, static_cast<float>(m_swapchain_configuration.extent.width), static_cast<float>(m_swapchain_configuration.extent.height), min_depth, max_depth);
+        return vk::Viewport(0.0f, 0.0f, static_cast<float>(m_swapchain_configuration.extent.width), static_cast<float>(m_swapchain_configuration.extent.height), min_depth,
+                            max_depth);
     }
 
     void RenderContext::setup_validation_logger() {
@@ -526,7 +529,7 @@ namespace vke {
         }
     }
 
-    vk::ShaderModule RenderContext::compile_glsl_shader(const std::string &source, const std::string& filename) const {
+    vk::ShaderModule RenderContext::compile_glsl_shader(const std::string &source, const std::string &filename) const {
         const shaderc::Compiler       compiler;
         const shaderc::CompileOptions options;
 
@@ -543,7 +546,9 @@ namespace vke {
         return m_device.createShaderModule(vk::ShaderModuleCreateInfo({}, code));
     }
 
-    std::tuple<vk::Buffer, VmaAllocation, VmaAllocationInfo> create_buffer(const size_t size, const void* data, const MemoryUsage memory_usage, const vk::BufferUsageFlags usage, const BufferOptions &options) {
+    BufferInfo RenderContext::create_buffer(const size_t size, const void *data, // NOLINT(*-no-recursion)
+                                                                                          const MemoryUsage memory_usage, const vk::BufferUsageFlags usage,
+                                                                                          const BufferOptions &options) {
         assert(size > 0);
 
         vk::BufferCreateInfo buffer_ci{};
@@ -559,44 +564,102 @@ namespace vke {
         }
 
         VmaAllocationCreateInfo aci{};
-         
+
         switch (memory_usage) {
-            case MemoryUsage::GpuOnly:
-                aci.usage = VMA_MEMORY_USAGE_AUTO_PREFER_DEVICE;
-                buffer_ci.usage |= vk::BufferUsageFlagBits::eTransferDst;
-                break;
-            case MemoryUsage::CpuOnly:
-                aci.usage = VMA_MEMORY_USAGE_AUTO_PREFER_HOST;
-                aci.flags = VMA_ALLOCATION_CREATE_HOST_ACCESS_RANDOM_BIT | VMA_ALLOCATION_CREATE_HOST_ACCESS_SEQUENTIAL_WRITE_BIT;
-                break;
-            case MemoryUsage::GpuToCpu:
-                aci.usage = VMA_MEMORY_USAGE_AUTO;
-                aci.flags = VMA_ALLOCATION_CREATE_HOST_ACCESS_RANDOM_BIT | VMA_ALLOCATION_CREATE_HOST_ACCESS_SEQUENTIAL_WRITE_BIT;
-                break;
-            case MemoryUsage::CpuToGpu:
-                aci.usage = VMA_MEMORY_USAGE_AUTO;
-                aci.flags = VMA_ALLOCATION_CREATE_HOST_ACCESS_RANDOM_BIT | VMA_ALLOCATION_CREATE_HOST_ACCESS_SEQUENTIAL_WRITE_BIT;
-                break;
+        case MemoryUsage::DeviceOnly:
+            assert(options.access_mode != MemoryAccessMode::Random && options.access_mode != MemoryAccessMode::Sequential); // this needs to be true to make this work right
+            aci.usage = VMA_MEMORY_USAGE_AUTO_PREFER_DEVICE;
+            buffer_ci.usage |= vk::BufferUsageFlagBits::eTransferDst;
+            break;
+        case MemoryUsage::Auto:
+            aci.usage = VMA_MEMORY_USAGE_AUTO;
+            if (options.access_mode == MemoryAccessMode::Sequential) {
+                aci.flags |= VMA_ALLOCATION_CREATE_HOST_ACCESS_SEQUENTIAL_WRITE_BIT;
+            } else if (options.access_mode == MemoryAccessMode::Random || options.access_mode == MemoryAccessMode::Auto) {
+                aci.flags |= VMA_ALLOCATION_CREATE_HOST_ACCESS_RANDOM_BIT;
+            }
+            break;
         }
 
-        VkBuffer buffer;
-        VkBufferCreateInfo bci = buffer_ci;
-        VmaAllocation allocation;
-        VmaAllocationInfo allocation_info;
+        VkBuffer                 buffer;
+        const VkBufferCreateInfo bci = buffer_ci;
+        VmaAllocation            allocation;
+        VmaAllocationInfo        allocation_info;
 
         vmaCreateBuffer(m_allocator, &bci, &aci, &buffer, &allocation, &allocation_info);
 
         if (data != nullptr) {
-            if (memory_usage == MemoryUsage::GpuOnly) {
-                // needs to stage the data, bit weirder
-                auto staging = create_buffer(size, data, MemoryUsage::CpuToGpu, vk::BufferUsageFlagBits::eTransferSrc);
-                void* pStaging;
-                vmaMapMemory();
+            if (memory_usage == MemoryUsage::DeviceOnly) {
+                // needs to stage the data so this is a bit weirder
+                const auto staging = create_buffer(size, data, MemoryUsage::Auto, vk::BufferUsageFlagBits::eTransferSrc, {.access_mode = MemoryAccessMode::Sequential});
+                copy_buffer_to_buffer(staging.buffer, buffer, size, 0);
+                destroy_buffer(staging);
             } else {
-                // map the memory and do the copy
-
+                write_to_memory(allocation, size, data);
             }
         }
+
+        return {buffer, allocation, allocation_info};
     }
 
+    void RenderContext::run_transfer_commands_and_wait(const std::function<void(const vk::CommandBuffer &cmd)> &f) const {
+        const vk::Fence         fence = m_device.createFence({});
+        const vk::CommandBuffer cmd   = m_device.allocateCommandBuffers(vk::CommandBufferAllocateInfo(m_transfer_pool, vk::CommandBufferLevel::ePrimary, 1))[0];
+        record_single_use_commands(cmd, f);
+
+        m_queues.transfer.submit(vk::SubmitInfo({}, {}, cmd, {}), fence);
+        auto _ = m_device.waitForFences(fence, true, UINT64_MAX);
+
+        m_device.destroy(fence);
+        m_device.freeCommandBuffers(m_transfer_pool, cmd);
+    }
+
+    void RenderContext::run_graphics_commands_and_wait(const std::function<void(const vk::CommandBuffer &cmd)> &f) const {
+        const vk::Fence         fence = m_device.createFence({});
+        const vk::CommandBuffer cmd   = m_device.allocateCommandBuffers(vk::CommandBufferAllocateInfo(m_graphics_pool, vk::CommandBufferLevel::ePrimary, 1))[0];
+        record_single_use_commands(cmd, f);
+
+        m_queues.graphics.submit(vk::SubmitInfo({}, {}, cmd, {}), fence);
+        auto _ = m_device.waitForFences(fence, true, UINT64_MAX);
+
+        m_device.destroy(fence);
+        m_device.freeCommandBuffers(m_graphics_pool, cmd);
+    }
+
+    void RenderContext::run_compute_commands_and_wait(const std::function<void(const vk::CommandBuffer &cmd)> &f) const {
+        const vk::Fence         fence = m_device.createFence({});
+        const vk::CommandBuffer cmd   = m_device.allocateCommandBuffers(vk::CommandBufferAllocateInfo(m_compute_pool, vk::CommandBufferLevel::ePrimary, 1))[0];
+        record_single_use_commands(cmd, f);
+
+        m_queues.compute.submit(vk::SubmitInfo({}, {}, cmd, {}), fence);
+        auto _ = m_device.waitForFences(fence, true, UINT64_MAX);
+
+        m_device.destroy(fence);
+        m_device.freeCommandBuffers(m_compute_pool, cmd);
+    }
+
+
+    void RenderContext::copy_buffer_to_buffer(const vk::Buffer from, const vk::Buffer to, const vk::DeviceSize size, const vk::DeviceSize dst_offset) const {
+        copy_buffer_to_buffer(from, to, size, 0, dst_offset);
+    }
+
+    void RenderContext::copy_buffer_to_buffer(const vk::Buffer from, const vk::Buffer to, const vk::DeviceSize size, const vk::DeviceSize src_offset,
+                                              const vk::DeviceSize dst_offset) const {
+        run_transfer_commands_and_wait([&](const vk::CommandBuffer &cmd) { cmd.copyBuffer(from, to, vk::BufferCopy(src_offset, dst_offset, size)); });
+    }
+
+    void RenderContext::destroy_buffer(const BufferInfo &info) const {
+        vmaDestroyBuffer(m_allocator, info.buffer, info.allocation);
+    }
+
+    void RenderContext::write_to_memory(const VmaAllocation allocation, const size_t size, const void *const data, const ptrdiff_t dst_offset) const {
+        write_to_memory(allocation, size, data, 0, dst_offset);
+    }
+
+    void RenderContext::write_to_memory(const VmaAllocation allocation, const size_t size, const void *const data, const ptrdiff_t src_offset, const ptrdiff_t dst_offset) const {
+        void *mem;
+        vmaMapMemory(m_allocator, allocation, &mem);
+        std::memcpy(OFFSETPTR(mem, dst_offset), OFFSETPTR(data, src_offset), size);
+        vmaUnmapMemory(m_allocator, allocation);
+    }
 } // namespace vke

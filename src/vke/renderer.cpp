@@ -125,6 +125,27 @@ namespace vke {
         cmd.bindPipeline(vk::PipelineBindPoint::eCompute, pipeline);
     }
 
+    void ActiveRenderer::bind_mesh(const std::unique_ptr<Mesh> &mesh) const {
+        cmd.bindVertexBuffers(0, mesh->vertex_buffer().buffer, 0ULL);
+        if (mesh->index_buffer().has_value()) {
+            cmd.bindIndexBuffer(mesh->index_buffer().value().buffer, 0, mesh->index_type());
+        }
+    }
+
+    void ActiveRenderer::bind_mesh(const std::shared_ptr<Mesh> &mesh) const {
+        cmd.bindVertexBuffers(0, mesh->vertex_buffer().buffer, 0ULL);
+        if (mesh->index_buffer().has_value()) {
+            cmd.bindIndexBuffer(mesh->index_buffer().value().buffer, 0, mesh->index_type());
+        }
+    }
+
+    void ActiveRenderer::bind_mesh(const Mesh *mesh) const {
+        cmd.bindVertexBuffers(0, mesh->vertex_buffer().buffer, 0ULL);
+        if (mesh->index_buffer().has_value()) {
+            cmd.bindIndexBuffer(mesh->index_buffer().value().buffer, 0, mesh->index_type());
+        }
+    }
+
     void SimpleRenderer::render(const vk::CommandBuffer &cmd, const vk::ImageView view, const vk::Rect2D &render_area, const std::function<void(ActiveRenderer &&)> &f) const {
         const vk::ClearColorValue clear_color(m_clear_color.r, m_clear_color.g, m_clear_color.b, m_clear_color.a);
 

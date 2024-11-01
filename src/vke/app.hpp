@@ -2,9 +2,10 @@
 #include <GLFW/glfw3.h>
 #include <spdlog/spdlog.h>
 
-#include "render_context.hpp"
-#include "renderer.hpp"
-#include "state_track.hpp"
+#include "vke/render_context.hpp"
+#include "vke/renderer.hpp"
+#include "vke/state_track.hpp"
+#include "vke/mesh.hpp"
 
 namespace vke {
     class App {
@@ -29,6 +30,8 @@ namespace vke {
 
         vk::PipelineLayout                m_pipeline_layout;
         std::unique_ptr<GraphicsPipeline> m_pipeline;
+
+        std::unique_ptr<Mesh> m_mesh;
 
         void reload_image_tracking();
 
